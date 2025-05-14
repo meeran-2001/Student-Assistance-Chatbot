@@ -1,56 +1,44 @@
+# app.py
+
+import nltk
+# Ensure required NLTK data is present
+nltk.download('punkt', quiet=True)
+nltk.download('wordnet', quiet=True)
+nltk.download('omw-1.4', quiet=True)
+
 import streamlit as st
-import re
 import numpy as np
+import re
 import pickle
-from tensorflow.keras.models import load_model
+import tensorflow as tf
 from nltk.stem import WordNetLemmatizer
 
-# ─── Load model and data ─────────────────────────────────────
-model = load_model('chatbot_model.h5')
-with open('vocab.pkl', 'rb') as f:
-    vocab = pickle.load(f)
+# Load model and supporting data
+model = tf.keras.models.load_model('chatbot_model.h5')
+with open('words.pkl', 'rb') as f:
+    words = pickle.load(f)
 with open('classes.pkl', 'rb') as f:
     classes = pickle.load(f)
 
 lemmatizer = WordNetLemmatizer()
 
-# ─── Preprocessing ────────────────────────────────────────────
-def clean_up_sentence(sentence: str) -> list[str]:
-    # Regex tokenizer: split on word boundaries, drop punctuation
+def preprocess_and_predict(sentence):
+    # Tokenize & lemmatize
     tokens = re.findall(r'\b\w+\b', sentence.lower())
-    # Lemmatize each token
-    return [lemmatizer.lemmatize(tok) for tok in tokens]
+    lemmas = [lemmatizer.lemmatize(tok) for tok in tokens]
+    # Create bag‑of‑words
+    bag = np.array([1 if w in lemmas else 0 for w in words]).reshape(1, -1)
+    # Predict and return the class label
+    preds = model.predict(bag)
+    idx = np.argmax(preds[0])
+    return classes[idx]
 
-def predict_class(sentence: str) -> np.ndarray:
-    sentence_words = clean_up_sentence(sentence)
-    # Build bag-of-words vector
-    bag = [1 if w in sentence_words else 0 for w in vocab]
-    return np.array([bag])
-
-def chatbot_response(msg: str) -> str:
-    bow_input = predict_class(msg)
-    preds = model.predict(bow_input)[0]
-    return classes[np.argmax(preds)]
-
-# ─── Streamlit App ────────────────────────────────────────────
-st.set_page_config(page_title="Student Assistant Chatbot", page_icon="🤖")
+# Streamlit UI
+st.set_page_config(page_title="Student Assistant Chatbot", layout="centered")
 st.title("🎓 Student Assistant Chatbot")
-st.markdown("Ask me anything about assignments, exams, syllabus, and more!")
+st.markdown("Ask me anything about your academics!")
 
-if 'history' not in st.session_state:
-    st.session_state.history = []
-
-# User input
-user_input = st.text_input("You:")
-
+user_input = st.text_input("You:", "")
 if user_input:
-    response = chatbot_response(user_input)
-    st.session_state.history.append(("You", user_input))
-    st.session_state.history.append(("Bot", response))
-
-# Display chat history
-for speaker, text in st.session_state.history:
-    if speaker == "You":
-        st.markdown(f"**You:** {text}")
-    else:
-        st.markdown(f"**Bot:** {text}")
+    response = preprocess_and_predict(user_input)
+    st.text_area("Chatbot:", value=response, height=150)
